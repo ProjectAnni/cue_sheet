@@ -19,7 +19,7 @@
 // TODO don't swallow errors in parsing but use Result and Option where appropriate.
 
 use errors::Error;
-use parser::{self, Command, FileFormat, Time, TrackType, Token};
+use parser::{self, Command, FileFormat, Time, TrackType};
 use std::collections::HashMap;
 
 /// A tracklist provides a more useful representation of the information of a cue sheet.
@@ -134,8 +134,8 @@ impl TrackFile {
 /// One track described by a tracklist.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Track {
-    /// Title of the track.
-    pub title: Option<String>,
+    /// Info extracted from track.
+    pub info: HashMap<String, String>,
 
     /// Type of the track.
     pub track_type: TrackType,
@@ -152,9 +152,6 @@ pub struct Track {
 
     /// Track number as provided in the cue sheet.
     pub number: u32,
-
-    /// The performer of the track if any was stated.
-    pub performer: Option<String>,
 }
 
 type Index = (u32, Time);
@@ -162,18 +159,25 @@ type Index = (u32, Time);
 impl Track {
     fn consume(commands: &mut Vec<Command>) -> Result<Track, Error> {
         if let Command::Track(track_num, track_type) = commands.remove(0) {
-            let mut title = None;
-            let mut performer = None;
+            let mut info = HashMap::new();
             let mut index = Vec::new();
 
             while commands.len() > 0 {
-                match commands[0].clone() {
-                    Command::Performer(p) => {
-                        performer = Some(p);
+                match &commands[0] {
+                    Command::Title(t) => {
+                        info.insert("TITLE".to_owned(), t.to_owned());
                         commands.remove(0);
                     }
-                    Command::Title(t) => {
-                        title = Some(t);
+                    Command::Performer(p) => {
+                        info.insert("ARTIST".to_owned(), p.to_owned());
+                        commands.remove(0);
+                    }
+                    Command::Songwriter(w) => {
+                        info.insert("SONGWRITER".to_owned(), w.to_owned());
+                        commands.remove(0);
+                    }
+                    Command::Isrc(i) => {
+                        info.insert("ISRC".to_owned(), i.to_owned());
                         commands.remove(0);
                     }
                     Command::Pregap(time) => {
@@ -194,7 +198,7 @@ impl Track {
                         commands.remove(0);
                     }
                     Command::Index(i, time) => {
-                        index.push((i, time));
+                        index.push((*i, time.to_owned()));
                         commands.remove(0);
                     }
                     _ => break,
@@ -202,12 +206,11 @@ impl Track {
             }
 
             Ok(Track {
-                title,
+                info,
                 track_type,
                 duration: None,
                 index,
                 number: track_num,
-                performer,
             })
         } else {
             Err("Track::consume called but no Track command found.".into())
@@ -239,29 +242,33 @@ mod tests {
 
         let tracklist = Tracklist::parse(source).unwrap();
         assert_eq!(tracklist.info.contains_key("TITLE"), true);
-        assert_eq!(tracklist.info["TITLE"], "Loveless".to_string());
+        assert_eq!(tracklist.info["TITLE"], "Loveless");
 
         let files = tracklist.files;
         assert_eq!(files.len(), 1);
 
         let ref f = files[0];
-        assert_eq!(f.name, "My Bloody Valentine - Loveless.wav".to_string());
+        assert_eq!(f.name, "My Bloody Valentine - Loveless.wav");
         assert_eq!(f.format, FileFormat::Wave);
 
         let ref tracks = f.tracks;
         assert_eq!(tracks.len(), 2);
 
-        assert_eq!(tracks[0].clone().title.unwrap(), "Only Shallow".to_string());
+        assert_eq!(tracks[0].info.contains_key("TITLE"), true);
+        assert_eq!(tracks[0].info["TITLE"], "Only Shallow");
         assert_eq!(tracks[0].track_type, TrackType::Audio);
         assert_eq!(tracks[0].duration, Some(Time::new(4, 17, 52)));
         assert_eq!(tracks[0].number, 1);
-        assert_eq!(tracks[0].performer, Some("My Bloody Valentine".to_string()));
+        assert_eq!(tracks[0].info.contains_key("ARTIST"), true);
+        assert_eq!(tracks[0].info["ARTIST"], "My Bloody Valentine");
 
-        assert_eq!(tracks[1].clone().title.unwrap(), "Loomer".to_string());
+        assert_eq!(tracks[1].info.contains_key("TITLE"), true);
+        assert_eq!(tracks[1].info["TITLE"], "Loomer");
         assert_eq!(tracks[1].track_type, TrackType::Audio);
         assert_eq!(tracks[1].duration, None);
         assert_eq!(tracks[1].number, 2);
-        assert_eq!(tracks[1].performer, Some("My Bloody Valentine".to_string()));
+        assert_eq!(tracks[1].info.contains_key("ARTIST"), true);
+        assert_eq!(tracks[1].info["ARTIST"], "My Bloody Valentine");
     }
 
     #[test]
