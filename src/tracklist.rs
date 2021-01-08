@@ -19,7 +19,8 @@
 // TODO don't swallow errors in parsing but use Result and Option where appropriate.
 
 use errors::Error;
-use parser::{self, Command, FileFormat, Time, TrackType};
+use parser::{self, Command, FileFormat, Time, TrackType, Token};
+use std::collections::HashMap;
 
 /// A tracklist provides a more useful representation of the information of a cue sheet.
 #[derive(Clone, Debug)]
@@ -27,32 +28,30 @@ pub struct Tracklist {
     /// Files described by the tracklist.
     pub files: Vec<TrackFile>,
 
-    /// Performer of the tracklist.
-    pub performer: Option<String>,
-
-    /// Title of the tracklist.
-    pub title: Option<String>,
+    /// Info extracted from tracklist.
+    pub info: HashMap<String, String>,
 }
 
 impl Tracklist {
     /// Parse a cue sheet (content provided as `source`) into a `Tracklist`.
     pub fn parse(source: &str) -> Result<Tracklist, Error> {
         let mut commands = parser::parse_cue(source)?;
-
-        let mut performer = None;
-        let mut title = None;
+        let mut info = HashMap::new();
 
         while commands.len() > 0 {
-            match commands[0].clone() {
+            match &commands[0] {
                 Command::Performer(p) => {
-                    performer = Some(p);
+                    info.insert("ARTIST".to_owned(), p.to_owned());
                     commands.remove(0);
                 }
                 Command::Title(t) => {
-                    title = Some(t);
+                    info.insert("TITLE".to_owned(), t.to_owned());
                     commands.remove(0);
                 }
-                Command::Rem(_, _) => {
+                Command::Rem(key, value) => {
+                    if key == "DATE" || key == "DISCNUMBER" || key == "TOTALDISCS" {
+                        info.insert(key.to_owned(), value.to_string());
+                    }
                     commands.remove(0);
                 }
                 _ => {
@@ -71,9 +70,8 @@ impl Tracklist {
         }
 
         Ok(Tracklist {
-            files: files,
-            performer: performer,
-            title: title,
+            files,
+            info,
         })
     }
 }
@@ -123,9 +121,9 @@ impl TrackFile {
                 }
             }
             Ok(TrackFile {
-                tracks: tracks,
-                name: name,
-                format: format,
+                tracks,
+                name,
+                format,
             })
         } else {
             Err("TrackFile::consume called but no Track command found.".into())
@@ -204,12 +202,12 @@ impl Track {
             }
 
             Ok(Track {
-                title: title,
-                track_type: track_type,
+                title,
+                track_type,
                 duration: None,
-                index: index,
+                index,
                 number: track_num,
-                performer: performer,
+                performer,
             })
         } else {
             Err("Track::consume called but no Track command found.".into())
@@ -240,7 +238,8 @@ mod tests {
                             INDEX 01 04:17:52"#;
 
         let tracklist = Tracklist::parse(source).unwrap();
-        assert_eq!(tracklist.title.unwrap(), "Loveless".to_string());
+        assert_eq!(tracklist.info.contains_key("TITLE"), true);
+        assert_eq!(tracklist.info["TITLE"], "Loveless".to_string());
 
         let files = tracklist.files;
         assert_eq!(files.len(), 1);

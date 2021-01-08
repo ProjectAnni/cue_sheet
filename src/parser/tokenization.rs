@@ -31,6 +31,16 @@ pub enum Token {
     Time(Time),
 }
 
+impl ToString for Token {
+    fn to_string(&self) -> String {
+        match self {
+            Token::Number(n) => n.to_string(),
+            Token::String(s) => s.to_owned(),
+            Token::Time(t) => t.to_string_2(),
+        }
+    }
+}
+
 struct Reader {
     chars: Vec<char>,
     position: usize,
