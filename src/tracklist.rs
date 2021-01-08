@@ -54,7 +54,9 @@ impl Tracklist {
                     }
                     commands.remove(0);
                 }
-                Command::Catalog(_) => commands.remove(0),
+                Command::Catalog(_) => {
+                    commands.remove(0);
+                }
                 _ => {
                     break;
                 }
