@@ -94,42 +94,47 @@ pub struct TrackFile {
 
 impl TrackFile {
     fn consume(commands: &mut Vec<Command>) -> Result<Self, Error> {
-        if let Command::File(name, format) = commands.remove(0) {
-            let mut tracks: Vec<Track> = Vec::new();
-            let mut last_time: Option<Time> = None;
+        let cmd = commands.remove(0);
+        match cmd {
+            Command::File(name, format) => {
+                let mut tracks: Vec<Track> = Vec::new();
+                let mut last_time: Option<Time> = None;
 
-            while commands.len() > 0 {
-                if let Ok(track) = Track::consume(commands) {
-                    if track.index.len() > 0 {
-                        let time = track.index[track.index.len() - 1].clone();
+                while commands.len() > 0 {
+                    if let Ok(track) = Track::consume(commands) {
+                        if track.index.len() > 0 {
+                            let time = track.index[track.index.len() - 1].clone();
 
-                        if let Some(start) = last_time {
-                            let stop = track.index[0].clone().1;
-                            let duration = stop - start;
+                            if let Some(start) = last_time {
+                                let stop = track.index[0].clone().1;
+                                let duration = stop - start;
 
-                            let track_n = tracks.len();
-                            if let Some(last_track) = tracks.get_mut(track_n - 1) {
-                                (*last_track).duration = Some(duration);
+                                let track_n = tracks.len();
+                                if let Some(last_track) = tracks.get_mut(track_n - 1) {
+                                    (*last_track).duration = Some(duration);
+                                }
                             }
+
+                            last_time = Some(time.1);
+                        } else {
+                            last_time = None;
                         }
 
-                        last_time = Some(time.1);
+                        tracks.push(track);
                     } else {
-                        last_time = None;
+                        break;
                     }
-
-                    tracks.push(track);
-                } else {
-                    break;
                 }
+                Ok(TrackFile {
+                    tracks,
+                    name,
+                    format,
+                })
             }
-            Ok(TrackFile {
-                tracks,
-                name,
-                format,
-            })
-        } else {
-            Err("TrackFile::consume called but no Track command found.".into())
+            _ => {
+                commands.insert(0, cmd);
+                Err("TrackFile::consume called but no Track command found.".into())
+            }
         }
     }
 }
@@ -161,62 +166,70 @@ type Index = (u32, Time);
 
 impl Track {
     fn consume(commands: &mut Vec<Command>) -> Result<Track, Error> {
-        if let Command::Track(track_num, track_type) = commands.remove(0) {
-            let mut info = HashMap::new();
-            let mut index = Vec::new();
+        let cmd = commands.remove(0);
+        match cmd {
+            Command::Track(track_num, track_type) => {
+                let mut info = HashMap::new();
+                let mut index = Vec::new();
 
-            while commands.len() > 0 {
-                match &commands[0] {
-                    Command::Title(t) => {
-                        info.insert("TITLE".to_owned(), t.to_owned());
-                        commands.remove(0);
-                    }
-                    Command::Performer(p) => {
-                        info.insert("ARTIST".to_owned(), p.to_owned());
-                        commands.remove(0);
-                    }
-                    Command::Songwriter(w) => {
-                        info.insert("SONGWRITER".to_owned(), w.to_owned());
-                        commands.remove(0);
-                    }
-                    Command::Isrc(i) => {
-                        info.insert("ISRC".to_owned(), i.to_owned());
-                        commands.remove(0);
-                    }
-                    Command::Pregap(time) => {
-                        let next_command = commands
-                            .get(1)
-                            .ok_or("Pregap is the last command in the track!".to_owned())?
-                            .to_owned();
-
-                        let first_index;
-                        match next_command {
-                            Command::Index(_, time) => first_index = time,
-                            _ => {
-                                return Err("Pregap is not followed by an index!".into());
-                            }
+                while commands.len() > 0 {
+                    match &commands[0] {
+                        Command::Title(t) => {
+                            info.insert("TITLE".to_owned(), t.to_owned());
+                            commands.remove(0);
                         }
-                        let diff = first_index.total_frames() - time.total_frames();
-                        index.push((0, Time::from_frames(diff)));
-                        commands.remove(0);
-                    }
-                    Command::Index(i, time) => {
-                        index.push((*i, time.to_owned()));
-                        commands.remove(0);
-                    }
-                    _ => break,
-                }
-            }
+                        Command::Performer(p) => {
+                            info.insert("ARTIST".to_owned(), p.to_owned());
+                            commands.remove(0);
+                        }
+                        Command::Songwriter(w) => {
+                            info.insert("SONGWRITER".to_owned(), w.to_owned());
+                            commands.remove(0);
+                        }
+                        Command::Isrc(i) => {
+                            info.insert("ISRC".to_owned(), i.to_owned());
+                            commands.remove(0);
+                        }
+                        Command::Pregap(time) => {
+                            let next_command = commands
+                                .get(1)
+                                .ok_or("Pregap is the last command in the track!".to_owned())?
+                                .to_owned();
 
-            Ok(Track {
-                info,
-                track_type,
-                duration: None,
-                index,
-                number: track_num,
-            })
-        } else {
-            Err("Track::consume called but no Track command found.".into())
+                            let first_index;
+                            match next_command {
+                                Command::Index(_, time) => first_index = time,
+                                _ => {
+                                    return Err("Pregap is not followed by an index!".into());
+                                }
+                            }
+                            let diff = first_index.total_frames() - time.total_frames();
+                            index.push((0, Time::from_frames(diff)));
+                            commands.remove(0);
+                        }
+                        Command::Index(i, time) => {
+                            index.push((*i, time.to_owned()));
+                            commands.remove(0);
+                        }
+                        Command::Rem(_, _) => {
+                            commands.remove(0);
+                        }
+                        _ => break,
+                    }
+                }
+
+                Ok(Track {
+                    info,
+                    track_type,
+                    duration: None,
+                    index,
+                    number: track_num,
+                })
+            }
+            _ => {
+                commands.insert(0, cmd);
+                Err("Track::consume called but no Track command found.".into())
+            }
         }
     }
 }
